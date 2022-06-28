@@ -1,0 +1,156 @@
+/* ESP32 AWS IoT
+ *  
+ * Simplest possible example (that I could come up with) of using an ESP32 with AWS IoT.
+ *  
+ * Author: Anthony Elder 
+ * License: Apache License v2
+ */
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h> // install with Library Manager, I used v2.6.0
+
+const char* ssid = "MyNetwork";
+const char* password = "MyPassword";
+
+const char* awsEndpoint = "a35zhmp7kdws1z-ats.iot.us-west-1.amazonaws.com";
+
+// Update the two certificate strings below. Paste in the text of your AWS 
+// device certificate and private key. Add a quote character at the start
+// of each line and a backslash, n, quote, space, backslash at the end 
+// of each line:
+
+// xxxxxxxxxx-certificate.pem.crt
+static const char certificate_pem_crt[] PROGMEM = R"KEY(
+-----BEGIN CERTIFICATE-----
+MIIDWjCCAkKgAwIBAgIVAKPsNzmjzrmV5M9QnsbzqTtwttG8MA0GCSqGSIb3DQEB
+CwUAME0xSzBJBgNVBAsMQkFtYXpvbiBXZWIgU2VydmljZXMgTz1BbWF6b24uY29t
+IEluYy4gTD1TZWF0dGxlIFNUPVdhc2hpbmd0b24gQz1VUzAeFw0yMjA2MjgwNDM3
+MzZaFw00OTEyMzEyMzU5NTlaMB4xHDAaBgNVBAMME0FXUyBJb1QgQ2VydGlmaWNh
+dGUwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDhbYOMh1OMZbtyMdj1
+fwwWOIgXdgmBzPyO0gk1+/YWZcJM60Uo1Rc6UdDyPJrlZXJlEdnyQw6GVfLLHCXE
+T7aBEdDoWWhdBv2a38UJYTYGAFSDx3mcVvvXCFnLFQNRpl3w9pzi2DaX4Ury6vhX
+JTTX6+a/mupWpxx767xjwT366Glee+VNWGXCi6Cxzj8D6zbbJRls5XtDpIVlkCQn
+oVsiWV9sUxkIHjzu3lGgSv41ZJmpJoWr6F+SK/AHqOV7xRpSW39sSqhcZqNlOOp6
+S4CBxIZ9YFjxNr0M03v895QXeXsB5k4pVm1naOhfkPmo4oqsji6vvQu4oHWAsaZy
+IE4DAgMBAAGjYDBeMB8GA1UdIwQYMBaAFCD/ohCftyaebomrs9GTk21BiO7cMB0G
+A1UdDgQWBBTXfwiTwPYuz9c7ed696gl5fJ/npTAMBgNVHRMBAf8EAjAAMA4GA1Ud
+DwEB/wQEAwIHgDANBgkqhkiG9w0BAQsFAAOCAQEAHZ3NxHOnvxb8Tt7d3piSOOAr
+QgSErsGUDUs7wrX1GfXQSdrO/av3dk31dVgEN51bzYv0Cbmaa6ASapGOS11BMvs/
+KmA1xDXfr05s3lQWlGoJMme9hx7gCc0opHBxXyBTc/djlzrejiGyk0RuIMCB5uGe
+cuQHf+pwSgPc8ToVKqaVvrWR8osKqCnXBwWq1PoKxdjzNzz8nt7wMkfA8IKHcpb7
+NzdB/kEU0nktW3fH2v4Gos5UA9zKKIAwya/dhhL2iNMFdQDIEBvKkk4qcGIcVgi8
+99If21P1Qv7Cd4kJmTKUH1BHgxC/caQPhRM7L/Svh4jkoKuNCkWiSUV6qFHhlQ==
+-----END CERTIFICATE-----
+)KEY";
+
+// xxxxxxxxxx-private.pem.key
+static const char private_pem_key[] PROGMEM = R"KEY(
+-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEA4W2DjIdTjGW7cjHY9X8MFjiIF3YJgcz8jtIJNfv2FmXCTOtF
+KNUXOlHQ8jya5WVyZRHZ8kMOhlXyyxwlxE+2gRHQ6FloXQb9mt/FCWE2BgBUg8d5
+nFb71whZyxUDUaZd8Pac4tg2l+FK8ur4VyU01+vmv5rqVqcce+u8Y8E9+uhpXnvl
+TVhlwougsc4/A+s22yUZbOV7Q6SFZZAkJ6FbIllfbFMZCB487t5RoEr+NWSZqSaF
+q+hfkivwB6jle8UaUlt/bEqoXGajZTjqekuAgcSGfWBY8Ta9DNN7/PeUF3l7AeZO
+KVZtZ2joX5D5qOKKrI4ur70LuKB1gLGmciBOAwIDAQABAoIBAQDNHcjE5Z2v8iFN
+Fu5C8wcccPPj5RNheBOWIKcg59JTLuRM+QZE0SABgNCOmXaXpGcib8vQFBPzR+FT
+zpjOt3lol71urWu4udOoSFQQ5NMzQrmj7q1JBBzC3GZX0xbiBG8WAk9eWT3TlLuN
+rR+qq8AZeBzN2ze/AO96ElWorvymf32jFGbhxbF2ZPBMT8T5TfNwoMeoUCkWwDX6
+P70PbKT6HLoaH63fMMj6TEQaUGKYnZ8sufam8xyu/hApdzg1k5F1F8IrRZuQiLkc
+6XyULuatErliOSWBqozfnncKNC0hc+GEhjhuDPwGX5f1A6dJpLU5nOOo4Ky/FoN1
+wziuVvEBAoGBAPSGs6ruXyjw3NBac8ZLsgs+GJxvJjQZr1FD/fwSOFQXnrCWIGoD
+i/sTHf8ANwHU8jbrVjK0D+4SPWvpbShH2Ib06rM/NSltzUedDlsRqCUEANmgdkpb
+lJ4Za9v90CQkEvZWOkmWuHq83sA8qG7q6BkMk0suYbNp6Z8W9pXwb1BZAoGBAOwB
+ZfYjKTyPpXGL5j77l/lFdBpQ9qJrpvtrLgv+bURrgNRhLi9DW52CXaACJSvNLc07
+Z6EP+1I82Ju25R3KtlnEbtfXDaLUV4OYwqnLf94nLVu4otzyBLHDEYfIBKZT1YFW
+ZaAzh5TBXOYJ7L9v90n/ymgd8l2Y868jtYHnWeW7AoGAIEcjsl2S7CmXTF2USMm3
+L+q7fvLhHSGC1fxeq4aQLvGLPg4jKztaoALvA7k4iaJdcshv8XN5Yti/iN4gTZ/m
+QjJUROMEFnrrDRf7TCQxiOlVX2TiGICsRo5egYSolAy7AA9z1ED0CyehU8juBu41
+QxE45ES0GuXRM/HpDPPXDckCgYB2NbUWdkIfXWvm1cX74hUa/BjNXaRLclRvNh4Y
+T9X3IUmkFxEFB14KJNQ0Yx6vM9QvKgQb/l9Jr8RnKlLUe0ae6+8BGWxxFJ7JAWjv
+l0hyw3jKqk6ZEHgdebF8K0l47iDQ6a95cJYGglu/tVTqBnD8laySPf25t/TG0sIF
+URYMJQKBgBh5dX+WopZJbkKxzqKJ6rwE/9itR/DEt/m3G07PUkeSnTGdHmmlQMT9
+g3NxdmQcSWKYZXGWUQxQdQtL9EWItmsfLKFDHk38mGjPjs8zThjwBoc1T+wgGk0H
+crdL4ROVna5u2iObCmAvb0OGlhkvUU+H07Apvur4YCBaB917/Uqv
+-----END RSA PRIVATE KEY-----
+)KEY";
+/* root CA can be downloaded in:
+  https://www.symantec.com/content/en/us/enterprise/verisign/roots/VeriSign-Class%203-Public-Primary-Certification-Authority-G5.pem
+*/
+static const char rootCA[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF
+ADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6
+b24gUm9vdCBDQSAxMB4XDTE1MDUyNjAwMDAwMFoXDTM4MDExNzAwMDAwMFowOTEL
+MAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEZMBcGA1UEAxMQQW1hem9uIFJv
+b3QgQ0EgMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALJ4gHHKeNXj
+ca9HgFB0fW7Y14h29Jlo91ghYPl0hAEvrAIthtOgQ3pOsqTQNroBvo3bSMgHFzZM
+9O6II8c+6zf1tRn4SWiw3te5djgdYZ6k/oI2peVKVuRF4fn9tBb6dNqcmzU5L/qw
+IFAGbHrQgLKm+a/sRxmPUDgH3KKHOVj4utWp+UhnMJbulHheb4mjUcAwhmahRWa6
+VOujw5H5SNz/0egwLX0tdHA114gk957EWW67c4cX8jJGKLhD+rcdqsq08p8kDi1L
+93FcXmn/6pUCyziKrlA4b9v7LWIbxcceVOF34GfID5yHI9Y/QCB/IIDEgEw+OyQm
+jgSubJrIqg0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMC
+AYYwHQYDVR0OBBYEFIQYzIU07LwMlJQuCFmcx7IQTgoIMA0GCSqGSIb3DQEBCwUA
+A4IBAQCY8jdaQZChGsV2USggNiMOruYou6r4lK5IpDB/G/wkjUu0yKGX9rbxenDI
+U5PMCCjjmCXPI6T53iHTfIUJrU6adTrCC2qJeHZERxhlbI1Bjjt/msv0tadQ1wUs
+N+gDS63pYaACbvXy8MWy7Vu33PqUXHeeE6V/Uq2V8viTO96LXFvKWlJbYK8U90vv
+o/ufQJVtMVT8QtPHRh8jrdkPSHCa2XV4cdFyQzR1bldZwgJcJmApzyMZFo6IQ6XU
+5MsI+yMRQ+hDKXJioaldXgjUkK642M4UwtBV8ob2xJNDd2ZhwLnoQdeXeGADbkpy
+rqXRfboQnoZsG4q5WTP468SQvvG5
+-----END CERTIFICATE-----
+)EOF";
+
+WiFiClientSecure wiFiClient;
+void msgReceived(char* topic, byte* payload, unsigned int len);
+PubSubClient pubSubClient(awsEndpoint, 8883, msgReceived, wiFiClient); 
+
+void setup() {
+  Serial.begin(115200); delay(50); Serial.println();
+  Serial.println("ESP32 AWS IoT Example");
+  Serial.printf("SDK version: %s\n", ESP.getSdkVersion());
+
+  Serial.print("Connecting to "); Serial.print(ssid);
+  WiFi.begin(ssid, password);
+  WiFi.waitForConnectResult();
+  Serial.print(", WiFi connected, IP address: "); Serial.println(WiFi.localIP());
+
+  wiFiClient.setCACert(rootCA);
+  wiFiClient.setCertificate(certificate_pem_crt);
+  wiFiClient.setPrivateKey(private_pem_key);
+}
+
+unsigned long lastPublish;
+int msgCount;
+
+void loop() {
+
+  pubSubCheckConnect();
+
+  if (millis() - lastPublish > 10000) {
+    String msg = String("Hello from ESP8266: ") + ++msgCount;
+    boolean rc = pubSubClient.publish("outTopic", msg.c_str());
+    Serial.print("Published, rc="); Serial.print( (rc ? "OK: " : "FAILED: ") );
+    Serial.println(msg);
+    lastPublish = millis();
+  }
+}
+
+void msgReceived(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message received on "); Serial.print(topic); Serial.print(": ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+void pubSubCheckConnect() {
+  if ( ! pubSubClient.connected()) {
+    Serial.print("PubSubClient connecting to: "); Serial.print(awsEndpoint);
+    while ( ! pubSubClient.connected()) {
+      Serial.print(".");
+      pubSubClient.connect("ESPthingXXXX");
+      delay(1000);
+    }
+    Serial.println(" connected");
+    pubSubClient.subscribe("inTopic");
+  }
+  pubSubClient.loop();
+}
